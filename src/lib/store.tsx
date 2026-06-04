@@ -11,6 +11,9 @@ import type {
   ActivityComment,
   ActivityStatus,
   ActivityVote,
+  Availability,
+  AvailabilityPeriod,
+  BudgetItem,
   Participant,
   ParticipantStatus,
   Trip,
@@ -18,6 +21,8 @@ import type {
 } from '@/types'
 import {
   seedActivities,
+  seedAvailabilities,
+  seedBudgetItems,
   seedComments,
   seedParticipants,
   seedTrip,
@@ -38,6 +43,8 @@ interface TripState {
   activities: Activity[]
   votes: ActivityVote[]
   comments: ActivityComment[]
+  budgetItems: BudgetItem[]
+  availabilities: Availability[]
   /** identité légère du visiteur courant (phase 1 : choisie localement) */
   currentParticipantId: string
 }
@@ -54,6 +61,8 @@ function initialState(): TripState {
     activities: seedActivities,
     votes: seedVotes,
     comments: seedComments,
+    budgetItems: seedBudgetItems,
+    availabilities: seedAvailabilities,
     currentParticipantId: seedParticipants[0].id,
   }
 }
@@ -82,6 +91,12 @@ interface TripActions {
   // Votes & commentaires
   toggleVote: (activityId: string, type: VoteType) => void
   addComment: (activityId: string, content: string) => void
+  // Budget
+  addBudgetItem: (b: Pick<BudgetItem, 'description'> & Partial<BudgetItem>) => void
+  updateBudgetItem: (id: string, patch: Partial<BudgetItem>) => void
+  removeBudgetItem: (id: string) => void
+  // Disponibilités
+  toggleAvailability: (date: string, period: AvailabilityPeriod) => void
 }
 
 type TripContextValue = TripState & {
@@ -221,6 +236,56 @@ export function TripProvider({ children }: { children: ReactNode }) {
             },
           ],
         })),
+
+      addBudgetItem: (b) =>
+        setState((s) => ({
+          ...s,
+          budgetItems: [
+            ...s.budgetItems,
+            {
+              id: id(),
+              tripId: s.trip.id,
+              category: b.category ?? 'misc',
+              description: b.description,
+              totalCost: b.totalCost ?? null,
+              status: b.status ?? 'to_book',
+              linkUrl: b.linkUrl ?? null,
+              createdBy: b.createdBy ?? s.currentParticipantId,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        })),
+
+      updateBudgetItem: (bid, patch) =>
+        setState((s) => ({
+          ...s,
+          budgetItems: s.budgetItems.map((b) => (b.id === bid ? { ...b, ...patch } : b)),
+        })),
+
+      removeBudgetItem: (bid) =>
+        setState((s) => ({
+          ...s,
+          budgetItems: s.budgetItems.filter((b) => b.id !== bid),
+        })),
+
+      toggleAvailability: (date, period) =>
+        setState((s) => {
+          const me = s.currentParticipantId
+          const existing = s.availabilities.find(
+            (a) => a.participantId === me && a.availDate === date && a.period === period,
+          )
+          // Cycle : absent → disponible (true) → re-clic → supprimé.
+          if (existing) {
+            return { ...s, availabilities: s.availabilities.filter((a) => a !== existing) }
+          }
+          return {
+            ...s,
+            availabilities: [
+              ...s.availabilities,
+              { id: id(), tripId: s.trip.id, participantId: me, availDate: date, period, available: true },
+            ],
+          }
+        }),
     }
   }, [])
 
@@ -254,4 +319,19 @@ export const ACTIVITY_STATUS_LABEL: Record<ActivityStatus, string> = {
   validated: '✅ Validée',
   scheduled: '📅 Au programme',
   done: '✔️ Faite',
+}
+
+export const BUDGET_CATEGORY_LABEL: Record<BudgetItem['category'], string> = {
+  transport: '✈️ Transport',
+  accommodation: '🏠 Hébergement',
+  rental: '🚗 Location',
+  activities: '🎟️ Activités',
+  food: '🍽️ Repas',
+  misc: '📦 Divers',
+}
+
+export const BUDGET_STATUS_LABEL: Record<BudgetItem['status'], string> = {
+  to_book: 'À réserver',
+  booked: 'Réservé',
+  paid: 'Payé',
 }

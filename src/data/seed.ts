@@ -2,6 +2,8 @@ import type {
   Activity,
   ActivityComment,
   ActivityVote,
+  Availability,
+  BudgetItem,
   Participant,
   Trip,
 } from '@/types'
@@ -130,4 +132,50 @@ export const seedComments: ActivityComment[] = [
     content: 'Hâte ! On réserve tôt le matin pour éviter la foule ?',
     createdAt: '2026-06-03T15:00:00.000Z',
   },
+]
+
+export const seedBudgetItems: BudgetItem[] = [
+  {
+    id: 'b-flights',
+    tripId: 'trip-1',
+    category: 'transport',
+    description: 'Vols A/R Paris → Édimbourg',
+    totalCost: 720,
+    status: 'booked',
+    linkUrl: null,
+    createdBy: 'p-kevin',
+    createdAt: '2026-06-02T09:00:00.000Z',
+  },
+  {
+    id: 'b-cottage',
+    tripId: 'trip-1',
+    category: 'accommodation',
+    description: 'Cottage 7 nuits (Highlands)',
+    totalCost: 1400,
+    status: 'to_book',
+    linkUrl: null,
+    createdBy: 'p-lea',
+    createdAt: '2026-06-03T09:00:00.000Z',
+  },
+  {
+    id: 'b-car',
+    tripId: 'trip-1',
+    category: 'rental',
+    description: 'Location voiture 7 jours',
+    totalCost: 360,
+    status: 'to_book',
+    linkUrl: null,
+    createdBy: 'p-tom',
+    createdAt: '2026-06-03T10:00:00.000Z',
+  },
+]
+
+/** Fenêtre de dates explorée par le module Dispo (10 jours en juillet 2026). */
+export const AVAILABILITY_WINDOW = { start: '2026-07-15', days: 10 }
+
+export const seedAvailabilities: Availability[] = [
+  { id: 'av-1', tripId: 'trip-1', participantId: 'p-kevin', availDate: '2026-07-18', period: 'morning', available: true },
+  { id: 'av-2', tripId: 'trip-1', participantId: 'p-kevin', availDate: '2026-07-18', period: 'evening', available: true },
+  { id: 'av-3', tripId: 'trip-1', participantId: 'p-lea', availDate: '2026-07-18', period: 'morning', available: true },
+  { id: 'av-4', tripId: 'trip-1', participantId: 'p-nina', availDate: '2026-07-18', period: 'evening', available: true },
 ]
