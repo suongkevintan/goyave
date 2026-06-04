@@ -15,6 +15,8 @@ import type {
   Availability,
   AvailabilityPeriod,
   BudgetItem,
+  ItinerarySlot,
+  ItineraryPeriod,
   Participant,
   ParticipantStatus,
   Trip,
@@ -25,6 +27,7 @@ import {
   seedAvailabilities,
   seedBudgetItems,
   seedComments,
+  seedItinerarySlots,
   seedParticipants,
   seedTrip,
   seedVotes,
@@ -115,6 +118,17 @@ function mapAvailability(r: AvailabilityRow): Availability {
   }
 }
 
+type ItinerarySlotRow = {
+  id: string; trip_id: string; activity_id: string | null
+  slot_date: string; period: ItineraryPeriod; order_index: number
+}
+function mapSlot(r: ItinerarySlotRow): ItinerarySlot {
+  return {
+    id: r.id, tripId: r.trip_id, activityId: r.activity_id,
+    slotDate: r.slot_date, period: r.period, orderIndex: r.order_index,
+  }
+}
+
 interface TripActions {
   // Casting
   addParticipant: (p: Pick<Participant, 'name'> & Partial<Participant>) => void
@@ -135,6 +149,11 @@ interface TripActions {
   removeBudgetItem: (id: string) => void
   // Disponibilités
   toggleAvailability: (date: string, period: AvailabilityPeriod) => void
+  // Itinéraire
+  scheduleActivity: (activityId: string, date: string, period: ItineraryPeriod) => void
+  moveSlot: (slotId: string, date: string, period: ItineraryPeriod) => void
+  unscheduleSlot: (slotId: string) => void
+  setDayOrder: (orderedSlotIds: string[]) => void
 }
 
 interface TripContextValue {
@@ -145,6 +164,7 @@ interface TripContextValue {
   comments: ActivityComment[]
   budgetItems: BudgetItem[]
   availabilities: Availability[]
+  itinerarySlots: ItinerarySlot[]
   currentParticipantId: string
   currentParticipant: Participant | undefined
   actions: TripActions
@@ -160,6 +180,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
   const [comments, setComments] = useState<ActivityComment[]>(usingSupabase ? [] : seedComments)
   const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(usingSupabase ? [] : seedBudgetItems)
   const [availabilities, setAvailabilities] = useState<Availability[]>(usingSupabase ? [] : seedAvailabilities)
+  const [itinerarySlots, setItinerarySlots] = useState<ItinerarySlot[]>(usingSupabase ? [] : seedItinerarySlots)
   const [currentParticipantId, setCurrentId] = useState<string>(
     () => localStorage.getItem(IDENTITY_KEY) ?? '',
   )
@@ -210,6 +231,13 @@ export function TripProvider({ children }: { children: ReactNode }) {
     if (data) setAvailabilities((data as AvailabilityRow[]).map(mapAvailability))
   }, [])
 
+  const reloadItinerary = useCallback(async () => {
+    if (!supabase) return
+    const { data } = await supabase
+      .from('itinerary_slots').select('*').eq('trip_id', DEMO_TRIP_ID).order('order_index')
+    if (data) setItinerarySlots((data as ItinerarySlotRow[]).map(mapSlot))
+  }, [])
+
   // Chargement initial
   useEffect(() => {
     if (!supabase) return
@@ -224,12 +252,12 @@ export function TripProvider({ children }: { children: ReactNode }) {
           shareToken: t.share_token, createdAt: t.created_at,
         })
       }
-      await Promise.all([reloadParticipants(), reloadActivities(), reloadBudget(), reloadAvailabilities()])
+      await Promise.all([reloadParticipants(), reloadActivities(), reloadBudget(), reloadAvailabilities(), reloadItinerary()])
     })()
     return () => {
       active = false
     }
-  }, [reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities])
+  }, [reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
 
   // Realtime : tout le voyage sur un seul channel
   useEffect(() => {
@@ -243,11 +271,12 @@ export function TripProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_comments' }, () => void reloadActivities())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_items', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadBudget())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'availabilities', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadAvailabilities())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'itinerary_slots', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadItinerary())
       .subscribe()
     return () => {
       void client.removeChannel(channel)
     }
-  }, [reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities])
+  }, [reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
 
   // Identité par défaut / réajustement
   useEffect(() => {
@@ -450,8 +479,53 @@ export function TripProvider({ children }: { children: ReactNode }) {
           })
         }
       },
+
+      // ── Itinéraire ────────────────────────────────────────────────────────
+      scheduleActivity: (activityId, date, period) => {
+        // ordre = nombre d'activités déjà dans ce créneau
+        const order = itinerarySlots.filter((s) => s.slotDate === date && s.period === period).length
+        if (supabase) {
+          void supabase.from('itinerary_slots').insert({
+            trip_id: DEMO_TRIP_ID, activity_id: activityId, slot_date: date, period, order_index: order,
+          }).then(() => reloadItinerary())
+        } else {
+          setItinerarySlots((prev) => [
+            ...prev,
+            { id: id(), tripId: DEMO_TRIP_ID, activityId, slotDate: date, period, orderIndex: order },
+          ])
+        }
+      },
+      moveSlot: (slotId, date, period) => {
+        const order = itinerarySlots.filter((s) => s.slotDate === date && s.period === period).length
+        if (supabase) {
+          void supabase.from('itinerary_slots').update({ slot_date: date, period, order_index: order }).eq('id', slotId).then(() => reloadItinerary())
+        } else {
+          setItinerarySlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, slotDate: date, period, orderIndex: order } : s)))
+        }
+      },
+      unscheduleSlot: (slotId) => {
+        if (supabase) {
+          void supabase.from('itinerary_slots').delete().eq('id', slotId).then(() => reloadItinerary())
+        } else {
+          setItinerarySlots((prev) => prev.filter((s) => s.id !== slotId))
+        }
+      },
+      setDayOrder: (orderedSlotIds) => {
+        if (supabase) {
+          void Promise.all(
+            orderedSlotIds.map((sid, i) =>
+              supabase!.from('itinerary_slots').update({ order_index: i }).eq('id', sid),
+            ),
+          ).then(() => reloadItinerary())
+        } else {
+          setItinerarySlots((prev) => {
+            const rank = new Map(orderedSlotIds.map((sid, i) => [sid, i]))
+            return prev.map((s) => (rank.has(s.id) ? { ...s, orderIndex: rank.get(s.id)! } : s))
+          })
+        }
+      },
     }
-  }, [currentParticipantId, votes, availabilities, reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities])
+  }, [currentParticipantId, votes, availabilities, itinerarySlots, reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
 
   const value = useMemo<TripContextValue>(
     () => ({
@@ -462,11 +536,12 @@ export function TripProvider({ children }: { children: ReactNode }) {
       comments,
       budgetItems,
       availabilities,
+      itinerarySlots,
       currentParticipantId,
       currentParticipant: participants.find((p) => p.id === currentParticipantId),
       actions,
     }),
-    [trip, participants, activities, votes, comments, budgetItems, availabilities, currentParticipantId, actions],
+    [trip, participants, activities, votes, comments, budgetItems, availabilities, itinerarySlots, currentParticipantId, actions],
   )
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>
@@ -505,4 +580,10 @@ export const BUDGET_STATUS_LABEL: Record<BudgetItem['status'], string> = {
   to_book: 'À réserver',
   booked: 'Réservé',
   paid: 'Payé',
+}
+
+export const ITINERARY_PERIOD_LABEL: Record<ItineraryPeriod, string> = {
+  morning: '🌅 Matin',
+  afternoon: '☀️ Après-midi',
+  evening: '🌙 Soirée',
 }

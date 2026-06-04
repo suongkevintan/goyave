@@ -49,6 +49,10 @@ insert into budget_items (id, trip_id, category, description, total_cost, status
   ('77777777-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'rental', 'Location voiture 7 jours', 360, 'to_book', null, '22222222-0000-0000-0000-000000000003')
 on conflict (id) do nothing;
 
+insert into itinerary_slots (id, trip_id, activity_id, slot_date, period, order_index) values
+  ('99999999-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '44444444-0000-0000-0000-000000000001', '2026-07-18', 'morning', 0)
+on conflict (id) do nothing;
+
 insert into availabilities (id, trip_id, participant_id, avail_date, period, available) values
   ('88888888-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '22222222-0000-0000-0000-000000000001', '2026-07-18', 'morning', true),
   ('88888888-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', '22222222-0000-0000-0000-000000000001', '2026-07-18', 'evening', true),

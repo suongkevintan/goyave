@@ -4,6 +4,7 @@ import type {
   ActivityVote,
   Availability,
   BudgetItem,
+  ItinerarySlot,
   Participant,
   Trip,
 } from '@/types'
@@ -111,6 +112,10 @@ export const seedBudgetItems: BudgetItem[] = [
   { id: 'b-flights', tripId: DEMO_TRIP_ID, category: 'transport', description: 'Vols A/R Paris → Édimbourg', totalCost: 720, status: 'booked', linkUrl: null, createdBy: PID.kevin, createdAt: '2026-06-02T09:00:00.000Z' },
   { id: 'b-cottage', tripId: DEMO_TRIP_ID, category: 'accommodation', description: 'Cottage 7 nuits (Highlands)', totalCost: 1400, status: 'to_book', linkUrl: null, createdBy: PID.lea, createdAt: '2026-06-03T09:00:00.000Z' },
   { id: 'b-car', tripId: DEMO_TRIP_ID, category: 'rental', description: 'Location voiture 7 jours', totalCost: 360, status: 'to_book', linkUrl: null, createdBy: PID.tom, createdAt: '2026-06-03T10:00:00.000Z' },
+]
+
+export const seedItinerarySlots: ItinerarySlot[] = [
+  { id: 'it-1', tripId: DEMO_TRIP_ID, activityId: 'a-loch-ness', slotDate: '2026-07-18', period: 'morning', orderIndex: 0 },
 ]
 
 /** Fenêtre de dates explorée par le module Dispo (10 jours en juillet 2026). */
