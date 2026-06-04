@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "db:login": "supabase login",
     "db:link": "supabase link --project-ref lyznalohyniudklvlcej",
     "db:push": "supabase db push",
     "db:diff": "supabase db diff"
