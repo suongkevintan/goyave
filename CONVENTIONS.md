@@ -82,10 +82,52 @@ Définis dans `@theme` (`src/index.css`), issus de `DESIGN.md`. Disponibles à l
 
 ---
 
-## 4. Git (à venir)
+## 4. Git & collaboration
 
-- Branches : `feat/<module>-<sujet>`, `fix/<sujet>`.
-- Commits courts à l'impératif : `feat(budget): ajoute le calcul par personne`.
+> ⚠️ **Langue : tout ce qui est visible sur Git est en anglais** — README, messages de
+> commit, titres & descriptions de PR. Le reste (UI, docs internes, commentaires de
+> code) reste en français.
+
+### Commits — [Conventional Commits](https://www.conventionalcommits.org)
+
+Format : `type(scope): summary` — résumé court, à l'impératif, en anglais, sans point final.
+
+```
+feat(budget): add per-person cost computation
+fix(activities): keep vote toggle idempotent
+```
+
+| Type | Quand l'utiliser |
+|---|---|
+| `feat` | nouvelle fonctionnalité |
+| `fix` | correction de bug |
+| `chore` | outillage, config, deps (pas de code applicatif) |
+| `refactor` | refacto sans changement de comportement |
+| `docs` | documentation uniquement |
+| `style` | formatage, CSS, sans logique |
+| `test` | ajout/màj de tests |
+
+- **scope** = le module ou la zone : `casting`, `activities`, `dashboard`, `store`, `ds`, `config`…
+- **corps** (optionnel) : liste à puces de ce qui change concrètement et du *pourquoi*.
+- Un commit = un changement cohérent (évite les commits fourre-tout).
+
+### Branches
+
+`type/scope-sujet-court` en kebab-case, anglais :
+
+```
+feat/phase-2-supabase
+feat/budget-per-person-cost
+fix/activities-vote-toggle
+```
+
+`main` est la branche stable. On ne pousse pas du WIP cassé dessus.
+
+### Pull Requests
+
+- **Titre** = même format que les commits : `feat(budget): add per-person cost computation`.
+- **Description** (en anglais) : *What / Why / How to test*, + capture si UI.
+- Garder les PR petites et focalisées (1 sujet) pour une review rapide.
 
 ---
 

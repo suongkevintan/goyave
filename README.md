@@ -37,6 +37,15 @@ src/
 
 🗂️ Casting · 🎯 Activities · 📅 Itinerary · 📆 Availability · 💰 Budget · 📍 Beacon · 📎 Documents
 
+## Contributing
+
+All Git-facing content is in **English** (README, commits, PRs); the rest of the project
+stays French. Commits follow [Conventional Commits](https://www.conventionalcommits.org)
+(`type(scope): summary`), e.g. `feat(budget): add per-person cost computation`.
+Branches: `type/scope-short-subject` (e.g. `feat/phase-2-supabase`).
+
+➡️ Full guidelines: [`CONVENTIONS.md`](./CONVENTIONS.md) (§4 Git & collaboration).
+
 ## Dev tooling
 
 - **Agentation**: visual annotation toolbar (dev only). MCP server configured in
