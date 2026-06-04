@@ -34,7 +34,21 @@ import {
   seedVotes,
 } from '@/data/seed'
 import { supabase } from '@/lib/supabase'
+import { notifyError } from '@/lib/toast'
 import { DEMO_TRIP_ID, getShareToken } from '@/config/demo'
+
+/**
+ * Résout le résultat d'une écriture Supabase : signale l'erreur via un toast,
+ * sinon déclenche le rechargement. Tolère aussi un tableau de résultats (Promise.all).
+ */
+function settle(res: unknown, reload: () => void) {
+  const arr = Array.isArray(res) ? res : [res]
+  const failed = arr.find((r) => (r as { error?: unknown })?.error) as
+    | { error?: { message?: string } }
+    | undefined
+  if (failed?.error) notifyError(failed.error.message ?? 'Échec de l’enregistrement')
+  else reload()
+}
 
 /**
  * Store de Voyage — entièrement branché sur Supabase (phase 2).
@@ -315,7 +329,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
             trip_id: tripIdRef.current, name: p.name, avatar_url: p.avatarUrl ?? null,
             phone: p.phone ?? null, allergies: p.allergies ?? null, notes: p.notes ?? null,
             status: p.status ?? 'confirmed',
-          }).then(() => reloadParticipants())
+          }).then((r) => settle(r, reloadParticipants))
         } else {
           setParticipants((prev) => [
             ...prev,
@@ -336,14 +350,14 @@ export function TripProvider({ children }: { children: ReactNode }) {
           if ('notes' in patch) row.notes = patch.notes
           if ('status' in patch) row.status = patch.status
           if ('avatarUrl' in patch) row.avatar_url = patch.avatarUrl
-          void supabase.from('participants').update(row).eq('id', pid).then(() => reloadParticipants())
+          void supabase.from('participants').update(row).eq('id', pid).then((r) => settle(r, reloadParticipants))
         } else {
           setParticipants((prev) => prev.map((p) => (p.id === pid ? { ...p, ...patch } : p)))
         }
       },
       removeParticipant: (pid) => {
         if (supabase) {
-          void supabase.from('participants').delete().eq('id', pid).then(() => reloadParticipants())
+          void supabase.from('participants').delete().eq('id', pid).then((r) => settle(r, reloadParticipants))
         } else {
           setParticipants((prev) => prev.filter((p) => p.id !== pid))
         }
@@ -358,7 +372,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
             location: a.location ?? null, lat: a.lat ?? null, lng: a.lng ?? null,
             duration_min: a.durationMin ?? null, cost_per_person: a.costPerPerson ?? null,
             status: a.status ?? 'idea', proposed_by: a.proposedBy ?? (currentParticipantId || null),
-          }).then(() => reloadActivities())
+          }).then((r) => settle(r, reloadActivities))
         } else {
           setActivities((prev) => [
             {
@@ -383,14 +397,14 @@ export function TripProvider({ children }: { children: ReactNode }) {
           if ('durationMin' in patch) row.duration_min = patch.durationMin
           if ('costPerPerson' in patch) row.cost_per_person = patch.costPerPerson
           if ('status' in patch) row.status = patch.status
-          void supabase.from('activities').update(row).eq('id', aid).then(() => reloadActivities())
+          void supabase.from('activities').update(row).eq('id', aid).then((r) => settle(r, reloadActivities))
         } else {
           setActivities((prev) => prev.map((a) => (a.id === aid ? { ...a, ...patch } : a)))
         }
       },
       removeActivity: (aid) => {
         if (supabase) {
-          void supabase.from('activities').delete().eq('id', aid).then(() => reloadActivities())
+          void supabase.from('activities').delete().eq('id', aid).then((r) => settle(r, reloadActivities))
         } else {
           setActivities((prev) => prev.filter((a) => a.id !== aid))
           setVotes((prev) => prev.filter((v) => v.activityId !== aid))
@@ -399,7 +413,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
       },
       setActivityStatus: (aid, status) => {
         if (supabase) {
-          void supabase.from('activities').update({ status }).eq('id', aid).then(() => reloadActivities())
+          void supabase.from('activities').update({ status }).eq('id', aid).then((r) => settle(r, reloadActivities))
         } else {
           setActivities((prev) => prev.map((a) => (a.id === aid ? { ...a, status } : a)))
         }
@@ -409,11 +423,11 @@ export function TripProvider({ children }: { children: ReactNode }) {
         const existing = votes.find((v) => v.activityId === activityId && v.participantId === me)
         if (supabase) {
           if (existing && existing.type === type) {
-            void supabase.from('activity_votes').delete().eq('id', existing.id).then(() => reloadActivities())
+            void supabase.from('activity_votes').delete().eq('id', existing.id).then((r) => settle(r, reloadActivities))
           } else if (existing) {
-            void supabase.from('activity_votes').update({ type }).eq('id', existing.id).then(() => reloadActivities())
+            void supabase.from('activity_votes').update({ type }).eq('id', existing.id).then((r) => settle(r, reloadActivities))
           } else {
-            void supabase.from('activity_votes').insert({ activity_id: activityId, participant_id: me, type }).then(() => reloadActivities())
+            void supabase.from('activity_votes').insert({ activity_id: activityId, participant_id: me, type }).then((r) => settle(r, reloadActivities))
           }
         } else {
           setVotes((prev) => {
@@ -426,7 +440,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
       addComment: (activityId, content) => {
         const me = currentParticipantId || null
         if (supabase) {
-          void supabase.from('activity_comments').insert({ activity_id: activityId, participant_id: me, content }).then(() => reloadActivities())
+          void supabase.from('activity_comments').insert({ activity_id: activityId, participant_id: me, content }).then((r) => settle(r, reloadActivities))
         } else {
           setComments((prev) => [
             ...prev,
@@ -442,7 +456,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
             trip_id: tripIdRef.current, category: b.category ?? 'misc', description: b.description,
             total_cost: b.totalCost ?? null, status: b.status ?? 'to_book', link_url: b.linkUrl ?? null,
             created_by: b.createdBy ?? (currentParticipantId || null),
-          }).then(() => reloadBudget())
+          }).then((r) => settle(r, reloadBudget))
         } else {
           setBudgetItems((prev) => [
             ...prev,
@@ -462,14 +476,14 @@ export function TripProvider({ children }: { children: ReactNode }) {
           if ('totalCost' in patch) row.total_cost = patch.totalCost
           if ('status' in patch) row.status = patch.status
           if ('linkUrl' in patch) row.link_url = patch.linkUrl
-          void supabase.from('budget_items').update(row).eq('id', bid).then(() => reloadBudget())
+          void supabase.from('budget_items').update(row).eq('id', bid).then((r) => settle(r, reloadBudget))
         } else {
           setBudgetItems((prev) => prev.map((b) => (b.id === bid ? { ...b, ...patch } : b)))
         }
       },
       removeBudgetItem: (bid) => {
         if (supabase) {
-          void supabase.from('budget_items').delete().eq('id', bid).then(() => reloadBudget())
+          void supabase.from('budget_items').delete().eq('id', bid).then((r) => settle(r, reloadBudget))
         } else {
           setBudgetItems((prev) => prev.filter((b) => b.id !== bid))
         }
@@ -483,11 +497,11 @@ export function TripProvider({ children }: { children: ReactNode }) {
         )
         if (supabase) {
           if (existing) {
-            void supabase.from('availabilities').delete().eq('id', existing.id).then(() => reloadAvailabilities())
+            void supabase.from('availabilities').delete().eq('id', existing.id).then((r) => settle(r, reloadAvailabilities))
           } else {
             void supabase.from('availabilities').insert({
               trip_id: tripIdRef.current, participant_id: me, avail_date: date, period, available: true,
-            }).then(() => reloadAvailabilities())
+            }).then((r) => settle(r, reloadAvailabilities))
           }
         } else {
           setAvailabilities((prev) => {
@@ -507,7 +521,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
         if (supabase) {
           void supabase.from('itinerary_slots').insert({
             trip_id: tripIdRef.current, activity_id: activityId, slot_date: date, period, order_index: order,
-          }).then(() => reloadItinerary())
+          }).then((r) => settle(r, reloadItinerary))
         } else {
           setItinerarySlots((prev) => [
             ...prev,
@@ -518,14 +532,14 @@ export function TripProvider({ children }: { children: ReactNode }) {
       moveSlot: (slotId, date, period) => {
         const order = itinerarySlots.filter((s) => s.slotDate === date && s.period === period).length
         if (supabase) {
-          void supabase.from('itinerary_slots').update({ slot_date: date, period, order_index: order }).eq('id', slotId).then(() => reloadItinerary())
+          void supabase.from('itinerary_slots').update({ slot_date: date, period, order_index: order }).eq('id', slotId).then((r) => settle(r, reloadItinerary))
         } else {
           setItinerarySlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, slotDate: date, period, orderIndex: order } : s)))
         }
       },
       unscheduleSlot: (slotId) => {
         if (supabase) {
-          void supabase.from('itinerary_slots').delete().eq('id', slotId).then(() => reloadItinerary())
+          void supabase.from('itinerary_slots').delete().eq('id', slotId).then((r) => settle(r, reloadItinerary))
         } else {
           setItinerarySlots((prev) => prev.filter((s) => s.id !== slotId))
         }
@@ -536,7 +550,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
             orderedSlotIds.map((sid, i) =>
               supabase!.from('itinerary_slots').update({ order_index: i }).eq('id', sid),
             ),
-          ).then(() => reloadItinerary())
+          ).then((r) => settle(r, reloadItinerary))
         } else {
           setItinerarySlots((prev) => {
             const rank = new Map(orderedSlotIds.map((sid, i) => [sid, i]))

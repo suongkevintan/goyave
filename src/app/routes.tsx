@@ -1,15 +1,19 @@
+import { lazy } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppLayout } from './AppLayout'
 import Landing from './Landing'
 import { TripProvider } from '@/lib/store'
-import DashboardPage from '@/modules/dashboard/DashboardPage'
-import CastingPage from '@/modules/casting/CastingPage'
-import ActivitiesPage from '@/modules/activities/ActivitiesPage'
-import ItineraryPage from '@/modules/itinerary/ItineraryPage'
-import AvailabilityPage from '@/modules/availability/AvailabilityPage'
-import BudgetPage from '@/modules/budget/BudgetPage'
-import BeaconPage from '@/modules/beacon/BeaconPage'
-import DocumentsPage from '@/modules/documents/DocumentsPage'
+
+// Pages de modules chargées à la demande (code-splitting → bundle initial allégé,
+// la carte Leaflet n'est téléchargée qu'en visitant l'Itinéraire).
+const DashboardPage = lazy(() => import('@/modules/dashboard/DashboardPage'))
+const CastingPage = lazy(() => import('@/modules/casting/CastingPage'))
+const ActivitiesPage = lazy(() => import('@/modules/activities/ActivitiesPage'))
+const ItineraryPage = lazy(() => import('@/modules/itinerary/ItineraryPage'))
+const AvailabilityPage = lazy(() => import('@/modules/availability/AvailabilityPage'))
+const BudgetPage = lazy(() => import('@/modules/budget/BudgetPage'))
+const BeaconPage = lazy(() => import('@/modules/beacon/BeaconPage'))
+const DocumentsPage = lazy(() => import('@/modules/documents/DocumentsPage'))
 
 export const router = createBrowserRouter([
   { path: '/', element: <Landing /> },

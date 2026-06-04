@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { MODULES } from '@/config/modules'
 import { Logo } from '@/components/Logo'
@@ -97,7 +97,9 @@ export function AppLayout() {
       </aside>
 
       <main className="app-shell__content" style={{ flex: 1, padding: 32, maxWidth: 1100 }}>
-        <Outlet />
+        <Suspense fallback={<p className="card__meta">Chargement…</p>}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   )

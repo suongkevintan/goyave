@@ -11,4 +11,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    // gzip ~149 kB : OK. La carte Leaflet et les pages sont déjà code-splittées.
+    chunkSizeWarningLimit: 700,
+  },
 })

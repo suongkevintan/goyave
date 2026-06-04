@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { notifyError } from '@/lib/toast'
 
 /**
  * Upload d'un fichier vers un bucket public Supabase Storage.
@@ -19,7 +20,7 @@ export async function uploadPublicFile(
     upsert: false,
   })
   if (error) {
-    console.error('upload error', error.message)
+    notifyError(`Échec de l’upload : ${error.message}`)
     return null
   }
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl
