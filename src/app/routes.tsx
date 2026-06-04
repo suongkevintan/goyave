@@ -1,5 +1,7 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppLayout } from './AppLayout'
+import Landing from './Landing'
+import { TripProvider } from '@/lib/store'
 import DashboardPage from '@/modules/dashboard/DashboardPage'
 import CastingPage from '@/modules/casting/CastingPage'
 import ActivitiesPage from '@/modules/activities/ActivitiesPage'
@@ -10,9 +12,15 @@ import BeaconPage from '@/modules/beacon/BeaconPage'
 import DocumentsPage from '@/modules/documents/DocumentsPage'
 
 export const router = createBrowserRouter([
+  { path: '/', element: <Landing /> },
   {
-    path: '/',
-    element: <AppLayout />,
+    // Accès par lien : un voyage = un share_token dans l'URL.
+    path: '/t/:token',
+    element: (
+      <TripProvider>
+        <AppLayout />
+      </TripProvider>
+    ),
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'casting', element: <CastingPage /> },
@@ -24,4 +32,5 @@ export const router = createBrowserRouter([
       { path: 'documents', element: <DocumentsPage /> },
     ],
   },
+  { path: '*', element: <Navigate to="/" replace /> },
 ])

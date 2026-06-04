@@ -1,27 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ModulePage } from '@/components/ModulePage'
 import { fieldStyle } from '@/components/ui'
+import { useTrip } from '@/lib/store'
 import { useBeacons } from './useBeacons'
 
 const MAX = 140
 const EMOJIS = ['😀', '🏔️', '🍺', '🚗', '☔', '🏰', '😴', '🎉']
-const IDENTITY_KEY = 'voyage:beacon:participant'
 
 export default function BeaconPage() {
-  const { ready, loading, error, participants, beacons, addBeacon } = useBeacons()
-  const [me, setMe] = useState<string>(() => localStorage.getItem(IDENTITY_KEY) ?? '')
+  const { trip, currentParticipant, currentParticipantId } = useTrip()
+  const { ready, loading, error, beacons, addBeacon } = useBeacons(trip.id)
   const [message, setMessage] = useState('')
   const [emoji, setEmoji] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
-
-  // Identité par défaut = premier participant chargé
-  useEffect(() => {
-    if (!me && participants.length) setMe(participants[0].id)
-  }, [participants, me])
-
-  useEffect(() => {
-    if (me) localStorage.setItem(IDENTITY_KEY, me)
-  }, [me])
+  const me = currentParticipantId
 
   if (!ready) {
     return (
@@ -50,15 +42,9 @@ export default function BeaconPage() {
     <ModulePage icon="📍" title="Balise" subtitle="Statut pendant le voyage — en temps réel">
       {/* Composer */}
       <form onSubmit={submit} className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-          <span className="card__meta">Vous êtes</span>
-          <select value={me} onChange={(e) => setMe(e.target.value)} style={{ ...fieldStyle, width: 'auto' }}>
-            {participants.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+        <div className="card__meta" style={{ marginBottom: 10 }}>
+          Publié en tant que{' '}
+          <strong style={{ color: 'var(--color-ink)' }}>{currentParticipant?.name ?? '— choisis ton identité dans le menu —'}</strong>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>

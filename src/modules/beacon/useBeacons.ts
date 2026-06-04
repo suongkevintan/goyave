@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { DEMO_TRIP_ID } from '@/config/demo'
-import type { Beacon, Participant } from '@/types'
+import type { Beacon } from '@/types'
 
 /**
  * Hook de données du module Balise — **branché sur Supabase** (module pilote phase 2).
@@ -35,8 +34,7 @@ function toView(row: BeaconRow): BeaconView {
   }
 }
 
-export function useBeacons(tripId: string = DEMO_TRIP_ID) {
-  const [participants, setParticipants] = useState<Pick<Participant, 'id' | 'name'>[]>([])
+export function useBeacons(tripId: string) {
   const [beacons, setBeacons] = useState<BeaconView[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +42,7 @@ export function useBeacons(tripId: string = DEMO_TRIP_ID) {
   const ready = Boolean(supabase)
 
   const refetch = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase || !tripId) return
     const { data, error } = await supabase
       .from('beacons')
       .select('*, participant:participants(name)')
@@ -54,25 +52,21 @@ export function useBeacons(tripId: string = DEMO_TRIP_ID) {
     else setBeacons((data as BeaconRow[]).map(toView))
   }, [tripId])
 
-  // Chargement initial : participants + balises
+  // Chargement initial
   useEffect(() => {
-    if (!supabase) {
+    if (!supabase || !tripId) {
       setLoading(false)
       return
     }
     let active = true
     ;(async () => {
       setLoading(true)
-      const [{ data: ps }, { data: bs, error: be }] = await Promise.all([
-        supabase.from('participants').select('id, name').eq('trip_id', tripId).order('created_at'),
-        supabase
-          .from('beacons')
-          .select('*, participant:participants(name)')
-          .eq('trip_id', tripId)
-          .order('created_at', { ascending: false }),
-      ])
+      const { data: bs, error: be } = await supabase
+        .from('beacons')
+        .select('*, participant:participants(name)')
+        .eq('trip_id', tripId)
+        .order('created_at', { ascending: false })
       if (!active) return
-      if (ps) setParticipants(ps)
       if (be) setError(be.message)
       else if (bs) setBeacons((bs as BeaconRow[]).map(toView))
       setLoading(false)
@@ -102,8 +96,8 @@ export function useBeacons(tripId: string = DEMO_TRIP_ID) {
   }, [tripId, refetch])
 
   const addBeacon = useCallback(
-    async (participantId: string, message: string, emoji: string | null) => {
-      if (!supabase) return
+    async (participantId: string | null, message: string, emoji: string | null) => {
+      if (!supabase || !tripId) return
       const { error } = await supabase
         .from('beacons')
         .insert({ trip_id: tripId, participant_id: participantId, message, emoji })
@@ -113,5 +107,5 @@ export function useBeacons(tripId: string = DEMO_TRIP_ID) {
     [tripId],
   )
 
-  return { ready, loading, error, participants, beacons, addBeacon }
+  return { ready, loading, error, beacons, addBeacon }
 }

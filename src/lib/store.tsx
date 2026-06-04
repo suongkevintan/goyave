@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -33,7 +34,7 @@ import {
   seedVotes,
 } from '@/data/seed'
 import { supabase } from '@/lib/supabase'
-import { DEMO_TRIP_ID } from '@/config/demo'
+import { DEMO_TRIP_ID, getShareToken } from '@/config/demo'
 
 /**
  * Store de Voyage — entièrement branché sur Supabase (phase 2).
@@ -156,8 +157,11 @@ interface TripActions {
   setDayOrder: (orderedSlotIds: string[]) => void
 }
 
+export type TripStatus = 'loading' | 'ready' | 'notfound'
+
 interface TripContextValue {
   trip: Trip
+  tripStatus: TripStatus
   participants: Participant[]
   activities: Activity[]
   votes: ActivityVote[]
@@ -174,6 +178,12 @@ const TripContext = createContext<TripContextValue | null>(null)
 
 export function TripProvider({ children }: { children: ReactNode }) {
   const [trip, setTrip] = useState<Trip>(seedTrip)
+  const [tripStatus, setTripStatus] = useState<TripStatus>(usingSupabase ? 'loading' : 'ready')
+  // tripId résolu depuis le share_token de l'URL. Ref → lu par les reloads/actions
+  // sans churn de dépendances ; state → utilisé par le realtime (filtres).
+  const [tripId, setTripId] = useState<string>(usingSupabase ? '' : DEMO_TRIP_ID)
+  const tripIdRef = useRef(tripId)
+  tripIdRef.current = tripId
   const [participants, setParticipants] = useState<Participant[]>(usingSupabase ? [] : seedParticipants)
   const [activities, setActivities] = useState<Activity[]>(usingSupabase ? [] : seedActivities)
   const [votes, setVotes] = useState<ActivityVote[]>(usingSupabase ? [] : seedVotes)
@@ -191,16 +201,16 @@ export function TripProvider({ children }: { children: ReactNode }) {
 
   // ── Rechargements Supabase ──────────────────────────────────────────────────
   const reloadParticipants = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase || !tripIdRef.current) return
     const { data } = await supabase
-      .from('participants').select('*').eq('trip_id', DEMO_TRIP_ID).order('created_at')
+      .from('participants').select('*').eq('trip_id', tripIdRef.current).order('created_at')
     if (data) setParticipants((data as ParticipantRow[]).map(mapParticipant))
   }, [])
 
   const reloadActivities = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase || !tripIdRef.current) return
     const { data: acts } = await supabase
-      .from('activities').select('*').eq('trip_id', DEMO_TRIP_ID).order('created_at', { ascending: false })
+      .from('activities').select('*').eq('trip_id', tripIdRef.current).order('created_at', { ascending: false })
     const list = (acts ?? []) as ActivityRow[]
     setActivities(list.map(mapActivity))
     const ids = list.map((a) => a.id)
@@ -218,65 +228,75 @@ export function TripProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const reloadBudget = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase || !tripIdRef.current) return
     const { data } = await supabase
-      .from('budget_items').select('*').eq('trip_id', DEMO_TRIP_ID).order('created_at')
+      .from('budget_items').select('*').eq('trip_id', tripIdRef.current).order('created_at')
     if (data) setBudgetItems((data as BudgetRow[]).map(mapBudget))
   }, [])
 
   const reloadAvailabilities = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase || !tripIdRef.current) return
     const { data } = await supabase
-      .from('availabilities').select('*').eq('trip_id', DEMO_TRIP_ID)
+      .from('availabilities').select('*').eq('trip_id', tripIdRef.current)
     if (data) setAvailabilities((data as AvailabilityRow[]).map(mapAvailability))
   }, [])
 
   const reloadItinerary = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase || !tripIdRef.current) return
     const { data } = await supabase
-      .from('itinerary_slots').select('*').eq('trip_id', DEMO_TRIP_ID).order('order_index')
+      .from('itinerary_slots').select('*').eq('trip_id', tripIdRef.current).order('order_index')
     if (data) setItinerarySlots((data as ItinerarySlotRow[]).map(mapSlot))
   }, [])
 
-  // Chargement initial
+  // Résolution du voyage depuis le share_token de l'URL
   useEffect(() => {
     if (!supabase) return
     let active = true
     ;(async () => {
       const { data: t } = await supabase!
-        .from('trips').select('*').eq('id', DEMO_TRIP_ID).maybeSingle()
-      if (active && t) {
+        .from('trips').select('*').eq('share_token', getShareToken()).maybeSingle()
+      if (!active) return
+      if (t) {
         setTrip({
           id: t.id, name: t.name, destination: t.destination, description: t.description,
           coverImageUrl: t.cover_image_url, startDate: t.start_date, endDate: t.end_date,
           shareToken: t.share_token, createdAt: t.created_at,
         })
+        setTripId(t.id)
+        setTripStatus('ready')
+      } else {
+        setTripStatus('notfound')
       }
-      await Promise.all([reloadParticipants(), reloadActivities(), reloadBudget(), reloadAvailabilities(), reloadItinerary()])
     })()
     return () => {
       active = false
     }
-  }, [reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
+  }, [])
+
+  // Chargement des données une fois le voyage résolu
+  useEffect(() => {
+    if (!supabase || !tripId) return
+    void Promise.all([reloadParticipants(), reloadActivities(), reloadBudget(), reloadAvailabilities(), reloadItinerary()])
+  }, [tripId, reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
 
   // Realtime : tout le voyage sur un seul channel
   useEffect(() => {
     const client = supabase
-    if (!client) return
+    if (!client || !tripId) return
     const channel = client
-      .channel(`trip:${DEMO_TRIP_ID}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadParticipants())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'activities', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadActivities())
+      .channel(`trip:${tripId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `trip_id=eq.${tripId}` }, () => void reloadParticipants())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'activities', filter: `trip_id=eq.${tripId}` }, () => void reloadActivities())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_votes' }, () => void reloadActivities())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_comments' }, () => void reloadActivities())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_items', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadBudget())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'availabilities', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadAvailabilities())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'itinerary_slots', filter: `trip_id=eq.${DEMO_TRIP_ID}` }, () => void reloadItinerary())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_items', filter: `trip_id=eq.${tripId}` }, () => void reloadBudget())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'availabilities', filter: `trip_id=eq.${tripId}` }, () => void reloadAvailabilities())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'itinerary_slots', filter: `trip_id=eq.${tripId}` }, () => void reloadItinerary())
       .subscribe()
     return () => {
       void client.removeChannel(channel)
     }
-  }, [reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
+  }, [tripId, reloadParticipants, reloadActivities, reloadBudget, reloadAvailabilities, reloadItinerary])
 
   // Identité par défaut / réajustement
   useEffect(() => {
@@ -292,7 +312,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
       addParticipant: (p) => {
         if (supabase) {
           void supabase.from('participants').insert({
-            trip_id: DEMO_TRIP_ID, name: p.name, avatar_url: p.avatarUrl ?? null,
+            trip_id: tripIdRef.current, name: p.name, avatar_url: p.avatarUrl ?? null,
             phone: p.phone ?? null, allergies: p.allergies ?? null, notes: p.notes ?? null,
             status: p.status ?? 'confirmed',
           }).then(() => reloadParticipants())
@@ -300,7 +320,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
           setParticipants((prev) => [
             ...prev,
             {
-              id: id(), tripId: DEMO_TRIP_ID, name: p.name, avatarUrl: p.avatarUrl ?? null,
+              id: id(), tripId: tripIdRef.current, name: p.name, avatarUrl: p.avatarUrl ?? null,
               phone: p.phone ?? null, allergies: p.allergies ?? null, notes: p.notes ?? null,
               status: p.status ?? 'confirmed', createdAt: new Date().toISOString(),
             },
@@ -334,7 +354,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
       addActivity: (a) => {
         if (supabase) {
           void supabase.from('activities').insert({
-            trip_id: DEMO_TRIP_ID, title: a.title, description: a.description ?? null,
+            trip_id: tripIdRef.current, title: a.title, description: a.description ?? null,
             location: a.location ?? null, lat: a.lat ?? null, lng: a.lng ?? null,
             duration_min: a.durationMin ?? null, cost_per_person: a.costPerPerson ?? null,
             status: a.status ?? 'idea', proposed_by: a.proposedBy ?? (currentParticipantId || null),
@@ -342,7 +362,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
         } else {
           setActivities((prev) => [
             {
-              id: id(), tripId: DEMO_TRIP_ID, title: a.title, description: a.description ?? null,
+              id: id(), tripId: tripIdRef.current, title: a.title, description: a.description ?? null,
               location: a.location ?? null, lat: a.lat ?? null, lng: a.lng ?? null,
               durationMin: a.durationMin ?? null, costPerPerson: a.costPerPerson ?? null,
               status: a.status ?? 'idea', proposedBy: a.proposedBy ?? currentParticipantId,
@@ -419,7 +439,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
       addBudgetItem: (b) => {
         if (supabase) {
           void supabase.from('budget_items').insert({
-            trip_id: DEMO_TRIP_ID, category: b.category ?? 'misc', description: b.description,
+            trip_id: tripIdRef.current, category: b.category ?? 'misc', description: b.description,
             total_cost: b.totalCost ?? null, status: b.status ?? 'to_book', link_url: b.linkUrl ?? null,
             created_by: b.createdBy ?? (currentParticipantId || null),
           }).then(() => reloadBudget())
@@ -427,7 +447,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
           setBudgetItems((prev) => [
             ...prev,
             {
-              id: id(), tripId: DEMO_TRIP_ID, category: b.category ?? 'misc', description: b.description,
+              id: id(), tripId: tripIdRef.current, category: b.category ?? 'misc', description: b.description,
               totalCost: b.totalCost ?? null, status: b.status ?? 'to_book', linkUrl: b.linkUrl ?? null,
               createdBy: b.createdBy ?? currentParticipantId, createdAt: new Date().toISOString(),
             },
@@ -466,7 +486,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
             void supabase.from('availabilities').delete().eq('id', existing.id).then(() => reloadAvailabilities())
           } else {
             void supabase.from('availabilities').insert({
-              trip_id: DEMO_TRIP_ID, participant_id: me, avail_date: date, period, available: true,
+              trip_id: tripIdRef.current, participant_id: me, avail_date: date, period, available: true,
             }).then(() => reloadAvailabilities())
           }
         } else {
@@ -474,7 +494,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
             if (existing) return prev.filter((a) => a !== existing)
             return [
               ...prev,
-              { id: id(), tripId: DEMO_TRIP_ID, participantId: me, availDate: date, period, available: true },
+              { id: id(), tripId: tripIdRef.current, participantId: me, availDate: date, period, available: true },
             ]
           })
         }
@@ -486,12 +506,12 @@ export function TripProvider({ children }: { children: ReactNode }) {
         const order = itinerarySlots.filter((s) => s.slotDate === date && s.period === period).length
         if (supabase) {
           void supabase.from('itinerary_slots').insert({
-            trip_id: DEMO_TRIP_ID, activity_id: activityId, slot_date: date, period, order_index: order,
+            trip_id: tripIdRef.current, activity_id: activityId, slot_date: date, period, order_index: order,
           }).then(() => reloadItinerary())
         } else {
           setItinerarySlots((prev) => [
             ...prev,
-            { id: id(), tripId: DEMO_TRIP_ID, activityId, slotDate: date, period, orderIndex: order },
+            { id: id(), tripId: tripIdRef.current, activityId, slotDate: date, period, orderIndex: order },
           ])
         }
       },
@@ -530,6 +550,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
   const value = useMemo<TripContextValue>(
     () => ({
       trip,
+      tripStatus,
       participants,
       activities,
       votes,
@@ -541,7 +562,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
       currentParticipant: participants.find((p) => p.id === currentParticipantId),
       actions,
     }),
-    [trip, participants, activities, votes, comments, budgetItems, availabilities, itinerarySlots, currentParticipantId, actions],
+    [trip, tripStatus, participants, activities, votes, comments, budgetItems, availabilities, itinerarySlots, currentParticipantId, actions],
   )
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>

@@ -1,8 +1,10 @@
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { MODULES } from '@/config/modules'
 import { useTrip } from '@/lib/store'
+import { tripPath } from '@/config/demo'
 
 export default function DashboardPage() {
+  const { token = '' } = useParams()
   const { trip, participants, activities } = useTrip()
 
   const confirmed = participants.filter((p) => p.status === 'confirmed').length
@@ -53,7 +55,7 @@ export default function DashboardPage() {
         }}
       >
         {MODULES.map((m) => (
-          <Link key={m.id} to={`/${m.id}`} className="card" style={{ textDecoration: 'none', display: 'block' }}>
+          <Link key={m.id} to={tripPath(token, m.id)} className="card" style={{ textDecoration: 'none', display: 'block' }}>
             <div style={{ fontSize: 28, marginBottom: 12 }} aria-hidden>
               {m.icon}
             </div>
