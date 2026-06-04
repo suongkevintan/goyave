@@ -1,12 +1,14 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { MODULES } from '@/config/modules'
 import { Logo } from '@/components/Logo'
+import { useTrip } from '@/lib/store'
 
 /**
  * Layout principal : barre latérale (desktop) / barre du bas (mobile) + zone de contenu.
  * Mobile-first conformément aux principes de design (note de cadrage §8).
  */
 export function AppLayout() {
+  const { trip, participants, currentParticipantId, actions } = useTrip()
   return (
     <div className="app-shell" style={{ minHeight: '100%', display: 'flex' }}>
       <aside
@@ -20,12 +22,22 @@ export function AppLayout() {
           position: 'sticky',
           top: 0,
           height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        <div style={{ marginBottom: 28 }}>
+        <div style={{ marginBottom: 20 }}>
           <NavLink to="/" style={{ textDecoration: 'none', display: 'inline-flex', gap: 10, alignItems: 'center' }}>
             <Logo />
           </NavLink>
+        </div>
+
+        <div className="card card--soft" style={{ padding: 12, marginBottom: 20 }}>
+          <div className="card__meta" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+            Voyage
+          </div>
+          <div style={{ fontWeight: 600, color: 'var(--color-ink)', fontSize: 14 }}>{trip.name}</div>
+          {trip.destination && <div className="card__meta">{trip.destination}</div>}
         </div>
 
         <nav className="nav" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -34,6 +46,36 @@ export function AppLayout() {
             <NavItem key={m.id} to={`/${m.id}`} icon={m.icon} label={m.label} />
           ))}
         </nav>
+
+        <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+          <label
+            htmlFor="identity"
+            className="card__meta"
+            style={{ display: 'block', marginBottom: 6 }}
+          >
+            Vous êtes
+          </label>
+          <select
+            id="identity"
+            value={currentParticipantId}
+            onChange={(e) => actions.setCurrentParticipant(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--color-hairline)',
+              background: 'var(--color-canvas)',
+              font: 'inherit',
+              fontSize: 14,
+            }}
+          >
+            {participants.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </aside>
 
       <main className="app-shell__content" style={{ flex: 1, padding: 32, maxWidth: 1100 }}>

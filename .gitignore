@@ -17,6 +17,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Journal de projet interne (REX prompts) — non versionné
+PROJECT-LOG.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

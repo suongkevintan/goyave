@@ -57,6 +57,23 @@ export interface Activity {
   createdAt: string
 }
 
+export type VoteType = 'like' | 'love'
+
+export interface ActivityVote {
+  id: string
+  activityId: string
+  participantId: string
+  type: VoteType
+}
+
+export interface ActivityComment {
+  id: string
+  activityId: string
+  participantId: string | null
+  content: string
+  createdAt: string
+}
+
 export interface ItinerarySlot {
   id: string
   tripId: string
