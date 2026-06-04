@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -28,78 +29,112 @@ import {
   seedTrip,
   seedVotes,
 } from '@/data/seed'
+import { supabase } from '@/lib/supabase'
+import { DEMO_TRIP_ID } from '@/config/demo'
 
 /**
- * Store local de Voyage (phase 1).
+ * Store de Voyage.
  *
- * État unique persisté dans localStorage. Toute l'UI lit/écrit via le hook
- * `useTrip()`. En phase 2, on remplacera l'implémentation par des appels
- * Supabase + realtime, sans changer la signature exposée à l'UI.
+ * Migration progressive vers Supabase (phase 2) :
+ *  - **Casting** (participants), **trip** et **identité courante** sont branchés
+ *    sur Supabase (lecture + écriture + realtime), avec fallback local si
+ *    Supabase n'est pas configuré.
+ *  - Les autres modules (Activités, Budget, Dispo) restent en local pour l'instant
+ *    et référencent les UUID Supabase (cf. data/seed.ts) — migration à suivre.
+ *
+ * Toute l'UI passe par `useTrip()` : la signature ne change pas quand un module
+ * bascule du local vers Supabase.
  */
 
-interface TripState {
-  trip: Trip
-  participants: Participant[]
+const usingSupabase = Boolean(supabase)
+
+// Partie encore locale (persistée dans localStorage).
+interface LocalState {
   activities: Activity[]
   votes: ActivityVote[]
   comments: ActivityComment[]
   budgetItems: BudgetItem[]
   availabilities: Availability[]
-  /** identité légère du visiteur courant (phase 1 : choisie localement) */
-  currentParticipantId: string
 }
 
-const STORAGE_KEY = 'voyage:state:v1'
+const STORAGE_KEY = 'voyage:state:v2'
+const IDENTITY_KEY = 'voyage:identity'
 
 const id = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-function initialState(): TripState {
+function initialLocal(): LocalState {
   return {
-    trip: seedTrip,
-    participants: seedParticipants,
     activities: seedActivities,
     votes: seedVotes,
     comments: seedComments,
     budgetItems: seedBudgetItems,
     availabilities: seedAvailabilities,
-    currentParticipantId: seedParticipants[0].id,
   }
 }
 
-function loadState(): TripState {
+function loadLocal(): LocalState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...initialState(), ...(JSON.parse(raw) as TripState) }
+    if (raw) return { ...initialLocal(), ...(JSON.parse(raw) as LocalState) }
   } catch {
     // localStorage indisponible ou JSON corrompu → on repart du seed
   }
-  return initialState()
+  return initialLocal()
+}
+
+// Mapping lignes Supabase (snake_case) → modèle app (camelCase).
+type ParticipantRow = {
+  id: string
+  trip_id: string
+  name: string
+  avatar_url: string | null
+  phone: string | null
+  allergies: string | null
+  notes: string | null
+  status: ParticipantStatus
+  created_at: string
+}
+function mapParticipant(r: ParticipantRow): Participant {
+  return {
+    id: r.id,
+    tripId: r.trip_id,
+    name: r.name,
+    avatarUrl: r.avatar_url,
+    phone: r.phone,
+    allergies: r.allergies,
+    notes: r.notes,
+    status: r.status,
+    createdAt: r.created_at,
+  }
 }
 
 interface TripActions {
-  // Casting
+  // Casting (Supabase)
   addParticipant: (p: Pick<Participant, 'name'> & Partial<Participant>) => void
   updateParticipant: (id: string, patch: Partial<Participant>) => void
   removeParticipant: (id: string) => void
   setCurrentParticipant: (id: string) => void
-  // Activités
+  // Activités (local)
   addActivity: (a: Pick<Activity, 'title'> & Partial<Activity>) => void
   updateActivity: (id: string, patch: Partial<Activity>) => void
   removeActivity: (id: string) => void
   setActivityStatus: (id: string, status: ActivityStatus) => void
-  // Votes & commentaires
+  // Votes & commentaires (local)
   toggleVote: (activityId: string, type: VoteType) => void
   addComment: (activityId: string, content: string) => void
-  // Budget
+  // Budget (local)
   addBudgetItem: (b: Pick<BudgetItem, 'description'> & Partial<BudgetItem>) => void
   updateBudgetItem: (id: string, patch: Partial<BudgetItem>) => void
   removeBudgetItem: (id: string) => void
-  // Disponibilités
+  // Disponibilités (local)
   toggleAvailability: (date: string, period: AvailabilityPeriod) => void
 }
 
-type TripContextValue = TripState & {
+interface TripContextValue extends LocalState {
+  trip: Trip
+  participants: Participant[]
+  currentParticipantId: string
   currentParticipant: Participant | undefined
   actions: TripActions
 }
@@ -107,27 +142,120 @@ type TripContextValue = TripState & {
 const TripContext = createContext<TripContextValue | null>(null)
 
 export function TripProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<TripState>(loadState)
+  const [local, setLocal] = useState<LocalState>(loadLocal)
+  const [trip, setTrip] = useState<Trip>(seedTrip)
+  const [participants, setParticipants] = useState<Participant[]>(
+    usingSupabase ? [] : seedParticipants,
+  )
+  const [currentParticipantId, setCurrentId] = useState<string>(
+    () => localStorage.getItem(IDENTITY_KEY) ?? '',
+  )
 
-  // Persistance à chaque changement
+  // Persistance de la partie locale
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(local))
     } catch {
-      // quota plein / mode privé : on ignore silencieusement
+      // quota plein / mode privé : on ignore
     }
-  }, [state])
+  }, [local])
+
+  // Persistance de l'identité
+  useEffect(() => {
+    if (currentParticipantId) localStorage.setItem(IDENTITY_KEY, currentParticipantId)
+  }, [currentParticipantId])
+
+  // Rechargement des participants depuis Supabase
+  const reloadParticipants = useCallback(async () => {
+    if (!supabase) return
+    const { data } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('trip_id', DEMO_TRIP_ID)
+      .order('created_at')
+    if (data) setParticipants((data as ParticipantRow[]).map(mapParticipant))
+  }, [])
+
+  // Chargement initial (trip + participants)
+  useEffect(() => {
+    if (!supabase) return
+    let active = true
+    ;(async () => {
+      const { data: t } = await supabase!
+        .from('trips')
+        .select('*')
+        .eq('id', DEMO_TRIP_ID)
+        .maybeSingle()
+      if (active && t) {
+        setTrip({
+          id: t.id,
+          name: t.name,
+          destination: t.destination,
+          description: t.description,
+          coverImageUrl: t.cover_image_url,
+          startDate: t.start_date,
+          endDate: t.end_date,
+          shareToken: t.share_token,
+          createdAt: t.created_at,
+        })
+      }
+      await reloadParticipants()
+    })()
+    return () => {
+      active = false
+    }
+  }, [reloadParticipants])
+
+  // Realtime sur les participants (nécessite la table dans la publication realtime)
+  useEffect(() => {
+    const client = supabase
+    if (!client) return
+    const channel = client
+      .channel(`participants:${DEMO_TRIP_ID}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'participants', filter: `trip_id=eq.${DEMO_TRIP_ID}` },
+        () => {
+          void reloadParticipants()
+        },
+      )
+      .subscribe()
+    return () => {
+      void client.removeChannel(channel)
+    }
+  }, [reloadParticipants])
+
+  // Identité par défaut / réajustement si le participant courant disparaît
+  useEffect(() => {
+    if (participants.length === 0) return
+    if (!currentParticipantId || !participants.some((p) => p.id === currentParticipantId)) {
+      setCurrentId(participants[0].id)
+    }
+  }, [participants, currentParticipantId])
 
   const actions = useMemo<TripActions>(() => {
     return {
-      addParticipant: (p) =>
-        setState((s) => ({
-          ...s,
-          participants: [
-            ...s.participants,
+      // ── Casting (Supabase, fallback local) ────────────────────────────────
+      addParticipant: (p) => {
+        if (supabase) {
+          void supabase
+            .from('participants')
+            .insert({
+              trip_id: DEMO_TRIP_ID,
+              name: p.name,
+              avatar_url: p.avatarUrl ?? null,
+              phone: p.phone ?? null,
+              allergies: p.allergies ?? null,
+              notes: p.notes ?? null,
+              status: p.status ?? 'confirmed',
+            })
+            .then(() => reloadParticipants())
+        } else {
+          setParticipants((prev) => [
+            ...prev,
             {
               id: id(),
-              tripId: s.trip.id,
+              tripId: DEMO_TRIP_ID,
               name: p.name,
               avatarUrl: p.avatarUrl ?? null,
               phone: p.phone ?? null,
@@ -136,35 +264,43 @@ export function TripProvider({ children }: { children: ReactNode }) {
               status: p.status ?? 'confirmed',
               createdAt: new Date().toISOString(),
             },
-          ],
-        })),
+          ])
+        }
+      },
 
-      updateParticipant: (pid, patch) =>
-        setState((s) => ({
-          ...s,
-          participants: s.participants.map((p) => (p.id === pid ? { ...p, ...patch } : p)),
-        })),
+      updateParticipant: (pid, patch) => {
+        if (supabase) {
+          const row: Record<string, unknown> = {}
+          if ('name' in patch) row.name = patch.name
+          if ('phone' in patch) row.phone = patch.phone
+          if ('allergies' in patch) row.allergies = patch.allergies
+          if ('notes' in patch) row.notes = patch.notes
+          if ('status' in patch) row.status = patch.status
+          if ('avatarUrl' in patch) row.avatar_url = patch.avatarUrl
+          void supabase.from('participants').update(row).eq('id', pid).then(() => reloadParticipants())
+        } else {
+          setParticipants((prev) => prev.map((p) => (p.id === pid ? { ...p, ...patch } : p)))
+        }
+      },
 
-      removeParticipant: (pid) =>
-        setState((s) => ({
-          ...s,
-          participants: s.participants.filter((p) => p.id !== pid),
-          currentParticipantId:
-            s.currentParticipantId === pid
-              ? (s.participants.find((p) => p.id !== pid)?.id ?? '')
-              : s.currentParticipantId,
-        })),
+      removeParticipant: (pid) => {
+        if (supabase) {
+          void supabase.from('participants').delete().eq('id', pid).then(() => reloadParticipants())
+        } else {
+          setParticipants((prev) => prev.filter((p) => p.id !== pid))
+        }
+      },
 
-      setCurrentParticipant: (pid) =>
-        setState((s) => ({ ...s, currentParticipantId: pid })),
+      setCurrentParticipant: (pid) => setCurrentId(pid),
 
+      // ── Activités (local) ─────────────────────────────────────────────────
       addActivity: (a) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           activities: [
             {
               id: id(),
-              tripId: s.trip.id,
+              tripId: DEMO_TRIP_ID,
               title: a.title,
               description: a.description ?? null,
               location: a.location ?? null,
@@ -173,7 +309,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
               durationMin: a.durationMin ?? null,
               costPerPerson: a.costPerPerson ?? null,
               status: a.status ?? 'idea',
-              proposedBy: a.proposedBy ?? s.currentParticipantId,
+              proposedBy: a.proposedBy ?? currentParticipantId,
               createdAt: new Date().toISOString(),
             },
             ...s.activities,
@@ -181,13 +317,13 @@ export function TripProvider({ children }: { children: ReactNode }) {
         })),
 
       updateActivity: (aid, patch) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           activities: s.activities.map((a) => (a.id === aid ? { ...a, ...patch } : a)),
         })),
 
       removeActivity: (aid) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           activities: s.activities.filter((a) => a.id !== aid),
           votes: s.votes.filter((v) => v.activityId !== aid),
@@ -195,86 +331,78 @@ export function TripProvider({ children }: { children: ReactNode }) {
         })),
 
       setActivityStatus: (aid, status) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           activities: s.activities.map((a) => (a.id === aid ? { ...a, status } : a)),
         })),
 
       toggleVote: (activityId, type) =>
-        setState((s) => {
-          const me = s.currentParticipantId
-          const existing = s.votes.find(
-            (v) => v.activityId === activityId && v.participantId === me,
-          )
-          // Re-cliquer le même type retire le vote ; un autre type le change.
+        setLocal((s) => {
+          const me = currentParticipantId
+          const existing = s.votes.find((v) => v.activityId === activityId && v.participantId === me)
           if (existing && existing.type === type) {
             return { ...s, votes: s.votes.filter((v) => v !== existing) }
           }
           if (existing) {
-            return {
-              ...s,
-              votes: s.votes.map((v) => (v === existing ? { ...v, type } : v)),
-            }
+            return { ...s, votes: s.votes.map((v) => (v === existing ? { ...v, type } : v)) }
           }
-          return {
-            ...s,
-            votes: [...s.votes, { id: id(), activityId, participantId: me, type }],
-          }
+          return { ...s, votes: [...s.votes, { id: id(), activityId, participantId: me, type }] }
         }),
 
       addComment: (activityId, content) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           comments: [
             ...s.comments,
             {
               id: id(),
               activityId,
-              participantId: s.currentParticipantId || null,
+              participantId: currentParticipantId || null,
               content,
               createdAt: new Date().toISOString(),
             },
           ],
         })),
 
+      // ── Budget (local) ────────────────────────────────────────────────────
       addBudgetItem: (b) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           budgetItems: [
             ...s.budgetItems,
             {
               id: id(),
-              tripId: s.trip.id,
+              tripId: DEMO_TRIP_ID,
               category: b.category ?? 'misc',
               description: b.description,
               totalCost: b.totalCost ?? null,
               status: b.status ?? 'to_book',
               linkUrl: b.linkUrl ?? null,
-              createdBy: b.createdBy ?? s.currentParticipantId,
+              createdBy: b.createdBy ?? currentParticipantId,
               createdAt: new Date().toISOString(),
             },
           ],
         })),
 
       updateBudgetItem: (bid, patch) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           budgetItems: s.budgetItems.map((b) => (b.id === bid ? { ...b, ...patch } : b)),
         })),
 
       removeBudgetItem: (bid) =>
-        setState((s) => ({
+        setLocal((s) => ({
           ...s,
           budgetItems: s.budgetItems.filter((b) => b.id !== bid),
         })),
 
+      // ── Disponibilités (local) ────────────────────────────────────────────
       toggleAvailability: (date, period) =>
-        setState((s) => {
-          const me = s.currentParticipantId
+        setLocal((s) => {
+          const me = currentParticipantId
           const existing = s.availabilities.find(
             (a) => a.participantId === me && a.availDate === date && a.period === period,
           )
-          // Cycle : absent → disponible (true) → re-clic → supprimé.
           if (existing) {
             return { ...s, availabilities: s.availabilities.filter((a) => a !== existing) }
           }
@@ -282,20 +410,23 @@ export function TripProvider({ children }: { children: ReactNode }) {
             ...s,
             availabilities: [
               ...s.availabilities,
-              { id: id(), tripId: s.trip.id, participantId: me, availDate: date, period, available: true },
+              { id: id(), tripId: DEMO_TRIP_ID, participantId: me, availDate: date, period, available: true },
             ],
           }
         }),
     }
-  }, [])
+  }, [currentParticipantId, reloadParticipants])
 
   const value = useMemo<TripContextValue>(
     () => ({
-      ...state,
-      currentParticipant: state.participants.find((p) => p.id === state.currentParticipantId),
+      ...local,
+      trip,
+      participants,
+      currentParticipantId,
+      currentParticipant: participants.find((p) => p.id === currentParticipantId),
       actions,
     }),
-    [state, actions],
+    [local, trip, participants, currentParticipantId, actions],
   )
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>
