@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { getShareToken } from '@/config/demo'
 
 /**
  * Client Supabase.
@@ -17,5 +18,9 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 export const isSupabaseEnabled = Boolean(url && anonKey)
 
 export const supabase: SupabaseClient | null = isSupabaseEnabled
-  ? createClient(url as string, anonKey as string)
+  ? createClient(url as string, anonKey as string, {
+      // Envoyé sur chaque requête REST → lu par la RLS (current_share_token()).
+      // Le realtime (lectures) n'en a pas besoin : les SELECT restent ouverts.
+      global: { headers: { 'x-share-token': getShareToken() } },
+    })
   : null

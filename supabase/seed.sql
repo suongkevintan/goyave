@@ -5,12 +5,12 @@
 -- Lancer via `supabase db reset` (auto) ou exécuter manuellement dans l'éditeur SQL.
 -- ============================================================================
 
-insert into trips (id, name, destination, description, start_date, end_date)
+insert into trips (id, name, destination, description, start_date, end_date, share_token)
 values (
   '11111111-1111-1111-1111-111111111111',
   'Road trip en Écosse', 'Highlands, Écosse',
   'Une semaine entre lochs, châteaux et whisky.',
-  '2026-07-18', '2026-07-25'
+  '2026-07-18', '2026-07-25', 'demo-share-token'
 )
 on conflict (id) do nothing;
 
