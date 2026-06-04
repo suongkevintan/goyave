@@ -144,12 +144,20 @@ values ('documents', 'documents', true)
 on conflict (id) do nothing;
 
 -- ── Realtime ────────────────────────────────────────────────────────────────
--- Activer la diffusion temps réel sur les tables collaboratives.
-alter publication supabase_realtime add table activities;
-alter publication supabase_realtime add table activity_votes;
-alter publication supabase_realtime add table activity_comments;
-alter publication supabase_realtime add table beacons;
-alter publication supabase_realtime add table availabilities;
+-- Activer la diffusion temps réel sur les tables collaboratives (idempotent).
+do $$
+declare t text;
+begin
+  foreach t in array array['activities','activity_votes','activity_comments','beacons','availabilities']
+  loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table %I;', t);
+    end if;
+  end loop;
+end $$;
 
 -- ── Row Level Security ──────────────────────────────────────────────────────
 -- Phase 1/2 : accès par lien (share_token), pas de compte. On active RLS sur
@@ -166,6 +174,7 @@ begin
   ]
   loop
     execute format('alter table %I enable row level security;', t);
+    execute format('drop policy if exists %I on %I;', t || '_anon_all', t);
     execute format($f$
       create policy %I on %I for all
       to anon, authenticated

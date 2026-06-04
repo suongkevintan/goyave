@@ -9,13 +9,18 @@ Migration initiale : `20260604000000_init_schema.sql`.
 
 ### Appliquer le schéma au projet distant
 
-> ⚠️ Commandes authentifiées → à lancer dans **ton** terminal (token de session).
+Le CLI Supabase est une **devDependency** (pas d'install globale — `npm i -g supabase`
+est déprécié). Utilise les scripts (le binaire est résolu depuis `node_modules`) :
+
+> ⚠️ Commandes authentifiées → à lancer dans **ton** terminal (`supabase login` au préalable).
 
 ```bash
-# depuis la racine du repo
-supabase link --project-ref lyznalohyniudklvlcej   # si pas déjà lié dans ce dossier
-supabase db push                                   # applique les migrations au projet distant
+bun run db:link    # lie ce dossier au projet (lyznalohyniudklvlcej) — peut demander le mot de passe DB
+bun run db:push    # applique les migrations en attente au projet distant
 ```
+
+Les migrations sont **idempotentes** : `db push` est sûr même si le schéma a déjà été
+appliqué manuellement (via l'éditeur SQL du dashboard).
 
 ### Variables d'environnement (app)
 
