@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ModulePage } from '@/components/ModulePage'
 import { Input, Modal, fieldStyle } from '@/components/ui'
 import { PARTICIPANT_STATUS_LABEL, useTrip } from '@/lib/store'
+import { uploadPublicFile } from '@/lib/storage'
 import type { Participant, ParticipantStatus } from '@/types'
 
 const STATUS_ORDER: ParticipantStatus[] = ['confirmed', 'uncertain', 'withdrawn']
@@ -49,7 +50,7 @@ export default function CastingPage() {
         {participants.map((p) => (
           <article key={p.id} className="card">
             <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <Avatar name={p.name} />
+              <Avatar name={p.name} url={p.avatarUrl} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="card__title">{p.name}</div>
                 <span className={STATUS_BADGE[p.status]} style={{ marginTop: 2 }}>
@@ -111,21 +112,27 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
-function Avatar({ name }: { name: string }) {
+function Avatar({ name, url, size = 40 }: { name: string; url?: string | null; size?: number }) {
+  const base: React.CSSProperties = {
+    width: size,
+    height: size,
+    flexShrink: 0,
+    borderRadius: 'var(--radius-pill)',
+    objectFit: 'cover',
+  }
+  if (url) return <img src={url} alt={name} style={base} />
   return (
     <span
       aria-hidden
       style={{
-        width: 40,
-        height: 40,
-        flexShrink: 0,
-        borderRadius: 'var(--radius-pill)',
+        ...base,
         background: 'var(--color-brand-lavender)',
         color: 'var(--color-ink)',
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         fontWeight: 700,
+        fontSize: size * 0.4,
       }}
     >
       {name.charAt(0).toUpperCase()}
@@ -148,9 +155,19 @@ function ParticipantForm({
     allergies: participant?.allergies ?? '',
     notes: participant?.notes ?? '',
     status: participant?.status ?? 'confirmed',
+    avatarUrl: participant?.avatarUrl ?? null,
   })
+  const [uploading, setUploading] = useState(false)
 
   const set = (patch: Partial<Participant>) => setForm((f) => ({ ...f, ...patch }))
+
+  const onPickAvatar = async (file: File | undefined) => {
+    if (!file) return
+    setUploading(true)
+    const url = await uploadPublicFile('avatars', file)
+    if (url) set({ avatarUrl: url })
+    setUploading(false)
+  }
 
   return (
     <Modal title={participant ? 'Modifier le participant' : 'Nouveau participant'} onClose={onClose}>
@@ -164,10 +181,30 @@ function ParticipantForm({
             allergies: form.allergies?.trim() || null,
             notes: form.notes?.trim() || null,
             status: form.status,
+            avatarUrl: form.avatarUrl ?? null,
           })
         }}
         style={{ display: 'grid', gap: 14 }}
       >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Avatar name={form.name || '?'} url={form.avatarUrl} size={56} />
+          <label className="btn btn--secondary" style={{ cursor: 'pointer' }}>
+            {uploading ? 'Upload…' : form.avatarUrl ? 'Changer la photo' : 'Ajouter une photo'}
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              disabled={uploading}
+              onChange={(e) => onPickAvatar(e.target.files?.[0])}
+            />
+          </label>
+          {form.avatarUrl && (
+            <button type="button" className="btn btn--ghost" onClick={() => set({ avatarUrl: null })}>
+              Retirer
+            </button>
+          )}
+        </div>
+
         <Input label="Nom / pseudo" value={form.name ?? ''} onChange={(v) => set({ name: v })} autoFocus required />
         <Input label="Téléphone" value={form.phone ?? ''} onChange={(v) => set({ phone: v })} />
         <Input label="Allergies" value={form.allergies ?? ''} onChange={(v) => set({ allergies: v })} />
@@ -192,7 +229,7 @@ function ParticipantForm({
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             Annuler
           </button>
-          <button type="submit" className="btn btn--primary">
+          <button type="submit" className="btn btn--primary" disabled={uploading}>
             {participant ? 'Enregistrer' : 'Ajouter'}
           </button>
         </div>
