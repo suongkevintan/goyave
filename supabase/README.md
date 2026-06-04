@@ -1,19 +1,41 @@
 # Supabase — Voyage (phase 2)
 
-## Mise en route
+Projet lié : **`lyznalohyniudklvlcej`** (`supabase link` déjà fait).
 
-1. Créer un projet sur [supabase.com](https://supabase.com).
-2. Copier l'URL du projet et la clé `anon` dans `.env.local` à la racine :
-   ```
-   VITE_SUPABASE_URL=https://xxxx.supabase.co
-   VITE_SUPABASE_ANON_KEY=eyJ...
-   ```
-3. Exécuter [`schema.sql`](./schema.sql) dans l'éditeur SQL Supabase
-   (ou `supabase db push` avec la CLI).
-4. Relancer `bun dev`. Le client réel (`src/lib/supabase.ts`) s'active
-   automatiquement quand les variables sont présentes.
+## Workflow migrations
 
-## Contenu de `schema.sql`
+Le schéma vit dans `supabase/migrations/` (source de vérité, versionnée).
+Migration initiale : `20260604000000_init_schema.sql`.
+
+### Appliquer le schéma au projet distant
+
+> ⚠️ Commandes authentifiées → à lancer dans **ton** terminal (token de session).
+
+```bash
+# depuis la racine du repo
+supabase link --project-ref lyznalohyniudklvlcej   # si pas déjà lié dans ce dossier
+supabase db push                                   # applique les migrations au projet distant
+```
+
+### Variables d'environnement (app)
+
+Renseigner `.env.local` à la racine (déjà créé, non versionné) :
+
+```
+VITE_SUPABASE_URL=https://lyznalohyniudklvlcej.supabase.co
+VITE_SUPABASE_ANON_KEY=<clé anon>
+```
+
+Récupérer la clé anon :
+```bash
+supabase projects api-keys --project-ref lyznalohyniudklvlcej
+```
+(ou Dashboard → Project Settings → API → `anon public`)
+
+Puis relancer `bun dev` : le client réel (`src/lib/supabase.ts`) s'active
+automatiquement dès que les deux variables sont présentes.
+
+## Contenu de la migration
 
 - **Tables** : tout le modèle de la note de cadrage (§6).
 - **Index** : sur les clés `trip_id` / `activity_id` les plus requêtées.
@@ -25,6 +47,6 @@
 
 ## Statut d'intégration
 
-Le schéma et le client sont prêts. La **migration des modules** du store local
-vers Supabase (lecture/écriture + realtime) se fait module par module — voir
-`src/lib/store.tsx` (l'API exposée à l'UI ne changera pas).
+Schéma + client prêts. La **migration des modules** du store local vers Supabase
+(lecture/écriture + realtime) se fait module par module — voir `src/lib/store.tsx`
+(l'API exposée à l'UI ne changera pas).
