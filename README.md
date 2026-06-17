@@ -1,4 +1,4 @@
-# Voyage 🧭
+# Goyave 🍐
 
 The **single cockpit** to run a group trip — from the first idea all the way back home.
 A Single Source of Truth for participants, activity ideas, itinerary, availability,
